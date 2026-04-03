@@ -26,34 +26,69 @@ export const TcpModule: React.FC = () => {
 
   const smoothProgress = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
 
-  // Update states via MotionValue Event (no extra listeners or dependency fight)
+  // Update states via MotionValue Event
   useMotionValueEvent(smoothProgress, "change", (latest) => {
     if (latest < 0.1) {
       if (clientState !== 'CLOSED') dispatch(resetTcp());
-    } else if (latest >= 0.1 && latest < 0.3) {
-      if (clientState === 'CLOSED') dispatch(setClientState('SYN_SENT'));
-    } else if (latest >= 0.3 && latest < 0.5) {
-      if (serverState === 'LISTEN') dispatch(setServerState('SYN_RCVD'));
-    } else if (latest >= 0.5 && latest < 0.7) {
+    } else if (latest >= 0.1 && latest < 0.22) {
+      if (clientState !== 'SYN_SENT') {
+        dispatch(setClientState('SYN_SENT'));
+        dispatch(setServerState('LISTEN'));
+      }
+    } else if (latest >= 0.22 && latest < 0.33) {
+      if (serverState !== 'SYN_RCVD') dispatch(setServerState('SYN_RCVD'));
+    } else if (latest >= 0.33 && latest < 0.5) {
       if (clientState !== 'ESTABLISHED') {
           dispatch(setClientState('ESTABLISHED'));
           dispatch(setServerState('ESTABLISHED'));
+      }
+    } else if (latest >= 0.5 && latest < 0.6) {
+      if (clientState !== 'FIN_WAIT_1') {
+          dispatch(setClientState('FIN_WAIT_1'));
+          dispatch(setServerState('ESTABLISHED'));
+      }
+    } else if (latest >= 0.6 && latest < 0.7) {
+      if (clientState !== 'FIN_WAIT_2') {
+          dispatch(setClientState('FIN_WAIT_2'));
+          dispatch(setServerState('CLOSE_WAIT'));
+      }
+    } else if (latest >= 0.7 && latest < 0.85) {
+      if (serverState !== 'LAST_ACK') {
+          dispatch(setClientState('TIME_WAIT'));
+          dispatch(setServerState('LAST_ACK'));
+      }
+    } else if (latest >= 0.85) {
+      if (clientState !== 'CLOSED' && latest > 0.9) {
+          dispatch(setClientState('CLOSED'));
+          dispatch(setServerState('CLOSED'));
       }
     }
   });
 
   // Packet movement driven by scroll
-  const synX = useTransform(smoothProgress, [0.12, 0.28], ["20%", "80%"]);
-  const synOpacity = useTransform(smoothProgress, [0.1, 0.12, 0.28, 0.3], [0, 1, 1, 0]);
+  const synX = useTransform(smoothProgress, [0.12, 0.2], ["20%", "80%"]);
+  const synOpacity = useTransform(smoothProgress, [0.1, 0.12, 0.2, 0.22], [0, 1, 1, 0]);
 
-  const synAckX = useTransform(smoothProgress, [0.32, 0.48], ["80%", "20%"]);
-  const synAckOpacity = useTransform(smoothProgress, [0.3, 0.32, 0.48, 0.5], [0, 1, 1, 0]);
+  const synAckX = useTransform(smoothProgress, [0.23, 0.31], ["80%", "20%"]);
+  const synAckOpacity = useTransform(smoothProgress, [0.21, 0.23, 0.31, 0.33], [0, 1, 1, 0]);
 
-  const ackX = useTransform(smoothProgress, [0.52, 0.68], ["20%", "80%"]);
-  const ackOpacity = useTransform(smoothProgress, [0.5, 0.52, 0.68, 0.7], [0, 1, 1, 0]);
+  const ackX = useTransform(smoothProgress, [0.34, 0.42], ["20%", "80%"]);
+  const ackOpacity = useTransform(smoothProgress, [0.32, 0.34, 0.42, 0.44], [0, 1, 1, 0]);
 
-  const dataX = useTransform(smoothProgress, [0.72, 0.95], ["20%", "80%"]);
-  const dataOpacity = useTransform(smoothProgress, [0.7, 0.75, 0.9, 0.95], [0, 1, 1, 0]);
+  const dataX = useTransform(smoothProgress, [0.45, 0.53], ["20%", "80%"]);
+  const dataOpacity = useTransform(smoothProgress, [0.43, 0.45, 0.53, 0.55], [0, 1, 1, 0]);
+
+  const fin1X = useTransform(smoothProgress, [0.55, 0.63], ["20%", "80%"]);
+  const fin1Opacity = useTransform(smoothProgress, [0.53, 0.55, 0.63, 0.65], [0, 1, 1, 0]);
+
+  const ackFin1X = useTransform(smoothProgress, [0.65, 0.73], ["80%", "20%"]);
+  const ackFin1Opacity = useTransform(smoothProgress, [0.63, 0.65, 0.73, 0.75], [0, 1, 1, 0]);
+
+  const fin2X = useTransform(smoothProgress, [0.75, 0.83], ["80%", "20%"]);
+  const fin2Opacity = useTransform(smoothProgress, [0.73, 0.75, 0.83, 0.85], [0, 1, 1, 0]);
+
+  const ackFin2X = useTransform(smoothProgress, [0.85, 0.93], ["20%", "80%"]);
+  const ackFin2Opacity = useTransform(smoothProgress, [0.83, 0.85, 0.93, 0.95], [0, 1, 1, 0]);
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -88,12 +123,12 @@ export const TcpModule: React.FC = () => {
             {/* Headers */}
             <div className="flex justify-between items-center px-16 py-10">
               <div className="flex flex-col">
-                <span className="font-black text-3xl text-blue-300 drop-shadow-[0_0_15px_rgba(147,197,253,0.4)]">Endpoint Alpha</span>
-                <span className="text-xs text-blue-500/70 font-mono uppercase tracking-[0.2em] font-bold mt-1">Client Initiator</span>
+                <span className="font-black text-3xl text-blue-300 drop-shadow-[0_0_15px_rgba(147,197,253,0.4)]">Client</span>
+                <span className="text-xs text-blue-500/70 font-mono uppercase tracking-[0.2em] font-bold mt-1">Initiator</span>
               </div>
               <div className="flex flex-col items-end">
-                <span className="font-black text-3xl text-purple-300 drop-shadow-[0_0_15px_rgba(216,180,254,0.4)]">Node Omega</span>
-                <span className="text-xs text-purple-500/70 font-mono uppercase tracking-[0.2em] font-bold mt-1">Target Server</span>
+                <span className="font-black text-3xl text-purple-300 drop-shadow-[0_0_15px_rgba(216,180,254,0.4)]">Server</span>
+                <span className="text-xs text-purple-500/70 font-mono uppercase tracking-[0.2em] font-bold mt-1">Target</span>
               </div>
             </div>
 
@@ -124,86 +159,127 @@ export const TcpModule: React.FC = () => {
                 </div>
             </div>
 
-            {/* Scorlly Packets (Handshake) */}
-            <motion.div 
-               style={{ left: synX, top: '40%', opacity: synOpacity }}
-               className="absolute z-30 flex flex-col items-center"
-            >
+            {/* Scrolling Packets */}
+            
+            {/* 1. SYN */}
+            <motion.div style={{ left: synX, top: '30%', opacity: synOpacity }} className="absolute z-30 flex flex-col items-center">
                 <div className="w-8 h-8 rounded-full bg-blue-500 shadow-[0_0_20px_#3b82f6] flex items-center justify-center ring-2 ring-blue-300 ring-offset-2 ring-offset-obsidian">
                     <span className="text-[8px] font-black text-white">SYN</span>
                 </div>
-                <div className="mt-4 p-2 glass-panel border-blue-500/30 text-[8px] font-mono text-blue-200 w-24">
-                   SEQ: 0<br/>FLAGS: SYN
-                </div>
+                <div className="mt-4 p-2 glass-panel border-blue-500/30 text-[8px] font-mono text-blue-200 w-24">"Hello!"</div>
             </motion.div>
 
-            <motion.div 
-               style={{ left: synAckX, top: '50%', opacity: synAckOpacity }}
-               className="absolute z-30 flex flex-col items-center"
-            >
+            {/* 2. SYN-ACK */}
+            <motion.div style={{ left: synAckX, top: '40%', opacity: synAckOpacity }} className="absolute z-30 flex flex-col items-center">
                 <div className="w-8 h-8 rounded-full bg-purple-500 shadow-[0_0_20px_#a855f7] flex items-center justify-center ring-2 ring-purple-300 ring-offset-2 ring-offset-obsidian">
                     <span className="text-[8px] font-black text-white">S-A</span>
                 </div>
-                <div className="mt-4 p-2 glass-panel border-purple-500/30 text-[8px] font-mono text-purple-200 w-24">
-                   SEQ: 100<br/>ACK: 1
-                </div>
+                <div className="mt-4 p-2 glass-panel border-purple-500/30 text-[8px] font-mono text-purple-200 w-32">"Heard you, Hello back"</div>
             </motion.div>
 
-            <motion.div 
-               style={{ left: ackX, top: '40%', opacity: ackOpacity }}
-               className="absolute z-30 flex flex-col items-center"
-            >
+            {/* 3. ACK */}
+            <motion.div style={{ left: ackX, top: '30%', opacity: ackOpacity }} className="absolute z-30 flex flex-col items-center">
                 <div className="w-8 h-8 rounded-full bg-blue-600 shadow-[0_0_20px_#2563eb] flex items-center justify-center ring-2 ring-blue-300 ring-offset-2 ring-offset-obsidian">
                     <span className="text-[8px] font-black text-white">ACK</span>
                 </div>
-                <div className="mt-4 p-2 glass-panel border-blue-500/30 text-[8px] font-mono text-blue-200 w-24">
-                   SEQ: 1<br/>ACK: 101
-                </div>
+                <div className="mt-4 p-2 glass-panel border-blue-500/30 text-[8px] font-mono text-blue-200 w-24">"Got it!"</div>
             </motion.div>
 
-            <motion.div 
-               style={{ left: dataX, top: '55%', opacity: dataOpacity }}
-               className="absolute z-30 flex flex-col items-center"
-            >
+            {/* 4. DATA */}
+            <motion.div style={{ left: dataX, top: '50%', opacity: dataOpacity }} className="absolute z-30 flex flex-col items-center">
                 <div className="w-8 h-8 rounded-full bg-emerald-500 shadow-[0_0_20px_#10b981] flex items-center justify-center ring-2 ring-emerald-300 ring-offset-2 ring-offset-obsidian">
                     <span className="text-[8px] font-black text-white">DATA</span>
                 </div>
-                <div className="mt-4 p-2 glass-panel border-emerald-500/30 text-[8px] font-mono text-emerald-200 w-24">
-                   SEQ: 101<br/>SIZE: 512B
+                <div className="mt-4 p-2 glass-panel border-emerald-500/30 text-[8px] font-mono text-emerald-200 w-24">"Here's my information."</div>
+            </motion.div>
+
+            {/* 5. FIN 1 */}
+            <motion.div style={{ left: fin1X, top: '60%', opacity: fin1Opacity }} className="absolute z-30 flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full bg-orange-500 shadow-[0_0_20px_#f97316] flex items-center justify-center ring-2 ring-orange-300 ring-offset-2 ring-offset-obsidian">
+                    <span className="text-[8px] font-black text-white">FIN</span>
                 </div>
+                <div className="mt-4 p-2 glass-panel border-orange-500/30 text-[8px] font-mono text-orange-200 w-24">"Goodbye, I'm done."</div>
+            </motion.div>
+
+            {/* 6. ACK FIN 1 */}
+            <motion.div style={{ left: ackFin1X, top: '70%', opacity: ackFin1Opacity }} className="absolute z-30 flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full bg-purple-600 shadow-[0_0_20px_#c084fc] flex items-center justify-center ring-2 ring-purple-300 ring-offset-2 ring-offset-obsidian">
+                    <span className="text-[8px] font-black text-white">ACK</span>
+                </div>
+                <div className="mt-4 p-2 glass-panel border-purple-500/30 text-[8px] font-mono text-purple-200 w-24">"Understood."</div>
+            </motion.div>
+
+            {/* 7. FIN 2 */}
+            <motion.div style={{ left: fin2X, top: '80%', opacity: fin2Opacity }} className="absolute z-30 flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full bg-orange-500 shadow-[0_0_20px_#f97316] flex items-center justify-center ring-2 ring-orange-300 ring-offset-2 ring-offset-obsidian">
+                    <span className="text-[8px] font-black text-white">FIN</span>
+                </div>
+                <div className="mt-4 p-2 glass-panel border-orange-500/30 text-[8px] font-mono text-orange-200 w-24">"I'm also done."</div>
+            </motion.div>
+
+            {/* 8. ACK FIN 2 */}
+            <motion.div style={{ left: ackFin2X, top: '60%', opacity: ackFin2Opacity }} className="absolute z-30 flex flex-col items-center">
+                <div className="w-8 h-8 rounded-full bg-blue-600 shadow-[0_0_20px_#2563eb] flex items-center justify-center ring-2 ring-blue-300 ring-offset-2 ring-offset-obsidian">
+                    <span className="text-[8px] font-black text-white">ACK</span>
+                </div>
+                <div className="mt-4 p-2 glass-panel border-blue-500/30 text-[8px] font-mono text-blue-200 w-24">"Confirmed."</div>
             </motion.div>
         
         </div>
       </div>
 
       {/* THE SCROLLING CONTENT LAYER (Triggers) */}
-      <div className="relative z-10">
+      <div className="relative z-10 pt-24 pb-64">
+        {/* Connection Establishment */}
         <ScrollSection 
-            title="The Origin" 
-            desc="TCP starts in a CLOSED state. No communication is occurring between Endpoint Alpha and Node Omega." 
+            title="Start" 
+            desc="Both devices are quiet. No connection is made yet between the Client and the Server. They are waiting to see if anyone wants to talk." 
             icon={<MousePointer2 size={32} className="text-blue-500" />}
         />
         <ScrollSection 
-            title="Step 1: Active Open (SYN)" 
-            desc="The client initiates the connection by sending a SYN (Synchronize) packet. It requests a sequence number starting point." 
+            title="Step 1: Client Says Hello (SYN)" 
+            desc="The Client wants to talk! It sends a 'Hello' (SYN) message to the Server." 
             icon={<ArrowDownCircle size={32} className="text-blue-400" />}
         />
         <ScrollSection 
-            title="Step 2: Passive Open (SYN-ACK)" 
-            desc="The server acknowledges the request and sends its own SYN. Now both sides are synchronizing their sequence counters." 
+            title="Step 2: Server Replies Hello (SYN-ACK)" 
+            desc="The Server hears the request. It replies with 'I hear you, Hello to you too' (SYN-ACK). Now both know the other is listening." 
             icon={<ArrowDownCircle size={32} className="text-purple-400" />}
         />
         <ScrollSection 
-            title="Step 3: Established" 
-            desc="Final ACK is sent by the client. The 3-Way Handshake is complete. A full-duplex virtual circuit is now established." 
+            title="Step 3: Ready to Talk (ACK)" 
+            desc="The Client says 'Got it!' (ACK). The connection is now open! This entire process is called the 3-Way Handshake." 
             icon={<ArrowDownCircle size={32} className="text-emerald-400" />}
         />
+        
+        {/* Data Transfer */}
         <ScrollSection 
-            title="Data Transmission" 
-            desc="Payloads flow through the channel. Notice the sequence numbers incrementing to ensure in-order delivery and reliability." 
+            title="Talking (Data Transmission)" 
+            desc="With the connection open, the Client and Server can now safely send data back and forth like a phone call." 
             icon={<ArrowDownCircle size={32} className="text-white" />}
         />
-        <div className="h-64"></div> {/* End Spacer */}
+        
+        {/* Connection Release */}
+        <ScrollSection 
+            title="Step 4: Client Wants to Stop (FIN)" 
+            desc="When finished, the Client sends a 'Goodbye, I'm done' (FIN) message to the Server. This starts the connection release." 
+            icon={<ArrowDownCircle size={32} className="text-orange-400" />}
+        />
+        <ScrollSection 
+            title="Step 5: Server Agrees (ACK)" 
+            desc="The Server says 'Okay, I understand you want to stop' (ACK). The Client waits quietly while the Server finishes any remaining tasks." 
+            icon={<ArrowDownCircle size={32} className="text-purple-400" />}
+        />
+        <ScrollSection 
+            title="Step 6: Server Says Goodbye (FIN)" 
+            desc="Once the Server is completely done, it sends its own 'Goodbye, I'm also done' (FIN) message to the Client." 
+            icon={<ArrowDownCircle size={32} className="text-orange-400" />}
+        />
+        <ScrollSection 
+            title="Step 7: Final Confirmation (ACK)" 
+            desc="The Client says 'Confirmed!' (ACK). The Server closes immediately. The Client waits roughly two minutes (TIME_WAIT) just to be sure their final message was received, then fully closes." 
+            icon={<ArrowDownCircle size={32} className="text-blue-400" />}
+        />
       </div>
     </div>
   );
