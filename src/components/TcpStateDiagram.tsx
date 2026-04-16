@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { TcpStateValue } from '../store/tcpSlice';
 
@@ -49,120 +49,201 @@ const EDGES: Edge[] = [
   { from: 'SYN_SENT', to: 'SYN_RCVD', pathType: 'anomaly', label: 'Recv: SYN, Send: SYN-ACK', isCurve: true },
 ];
 
+const ESTABLISHMENT_IDS = new Set<TcpStateValue>(['CLOSED', 'LISTEN', 'SYN_SENT', 'SYN_RCVD', 'ESTABLISHED']);
+
+const CLOSING_IDS = new Set<TcpStateValue>([
+  'ESTABLISHED',
+  'FIN_WAIT_1',
+  'FIN_WAIT_2',
+  'CLOSE_WAIT',
+  'LAST_ACK',
+  'CLOSING',
+  'TIME_WAIT',
+  'CLOSED',
+]);
+
+export type TcpDiagramRegion = 'establishment' | 'closing';
+
+function filterEdgesFor(region: TcpDiagramRegion): Edge[] {
+  const allow = region === 'establishment' ? ESTABLISHMENT_IDS : CLOSING_IDS;
+  return EDGES.filter((e) => allow.has(e.from) && allow.has(e.to));
+}
+
+function filterNodesFor(region: TcpDiagramRegion): Node[] {
+  const allow = region === 'establishment' ? ESTABLISHMENT_IDS : CLOSING_IDS;
+  return NODES.filter((n) => allow.has(n.id));
+}
+
+function viewBoxFor(nodes: Node[]): { vb: string; aspect: number } {
+  if (nodes.length === 0) return { vb: '0 0 400 300', aspect: 400 / 300 };
+  const xs = nodes.map((n) => n.x);
+  const ys = nodes.map((n) => n.y);
+  const padX = 70;
+  const padY = 55;
+  const minX = Math.min(...xs) - padX;
+  const maxX = Math.max(...xs) + padX;
+  const minY = Math.min(...ys) - padY;
+  const maxY = Math.max(...ys) + padY;
+  const w = maxX - minX;
+  const h = maxY - minY;
+  return { vb: `${minX} ${minY} ${w} ${h}`, aspect: w / h };
+}
+
 const getPathColor = (pathType: string, isActive: boolean) => {
   if (!isActive) return '#1e293b';
-  if (pathType === 'client') return '#3b82f6'; // Blue
-  if (pathType === 'server') return '#a855f7'; // Purple
-  return '#ef4444'; // Red for anomaly
+  if (pathType === 'client') return '#3b82f6';
+  if (pathType === 'server') return '#a855f7';
+  return '#ef4444';
 };
 
 const getTextColor = (pathType: string) => {
-  if (pathType === 'client') return 'fill-blue-400';
-  if (pathType === 'server') return 'fill-purple-400';
-  return 'fill-red-400';
+  if (pathType === 'client') return 'fill-blue-300';
+  if (pathType === 'server') return 'fill-purple-300';
+  return 'fill-red-300';
 };
 
-export const TcpStateDiagram: React.FC<{ currentState: TcpStateValue }> = ({ currentState }) => {
+export interface TcpStateDiagramProps {
+  clientState: TcpStateValue;
+  serverState: TcpStateValue;
+  view: TcpDiagramRegion;
+}
+
+export const TcpStateDiagram: React.FC<TcpStateDiagramProps> = ({ clientState, serverState, view }) => {
+  const active = new Set<TcpStateValue>([clientState, serverState]);
+  const nodes = useMemo(() => filterNodesFor(view), [view]);
+  const edges = useMemo(() => filterEdgesFor(view), [view]);
+  const { vb, aspect } = useMemo(() => viewBoxFor(nodes), [nodes]);
+  const filterId = `glow-edge-${view}`;
+
+  const title =
+    view === 'establishment'
+      ? 'Establishment — 3-way handshake'
+      : 'Teardown — orderly close';
+
+  const subtitle =
+    view === 'establishment'
+      ? 'States and transitions used to open a connection (through ESTABLISHED).'
+      : 'States and transitions used to shut down (back to CLOSED).';
+
   return (
-    <div className="relative w-full h-full">
-      {/* Legend */}
-      <div className="absolute top-2 left-2 p-2 rounded bg-black/40 border border-slate-700/50 text-[10px] space-y-1">
-        <div className="flex items-center gap-2"><div className="w-3 h-1 bg-blue-500 rounded"></div><span className="text-blue-200">Client Path</span></div>
-        <div className="flex items-center gap-2"><div className="w-3 h-1 bg-purple-500 rounded"></div><span className="text-purple-200">Server Path</span></div>
-        <div className="flex items-center gap-2"><div className="w-3 h-1 bg-red-500 rounded"></div><span className="text-red-200">Simultaneous/Anomaly</span></div>
+    <div className="relative w-full flex flex-col rounded-2xl border border-slate-600/70 bg-slate-950/60 shadow-lg">
+      <div className="px-5 pt-5 pb-3 border-b border-slate-800/90">
+        <h3 className="text-lg font-bold text-white tracking-tight">{title}</h3>
+        <p className="text-sm text-slate-400 mt-2 leading-relaxed">{subtitle}</p>
       </div>
 
-      <svg width="460" height="650" viewBox="-40 0 500 650" className="drop-shadow-2xl">
-        <defs>
-          <filter id="glow-edge">
-            <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
-            <feMerge>
-              <feMergeNode in="coloredBlur"/>
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
-        </defs>
+      <div className="relative flex-1 p-4 md:p-5">
+        <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-300">
+          <span className="flex items-center gap-2">
+            <span className="inline-block w-8 h-1 rounded bg-blue-500" />
+            Client path
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="inline-block w-8 h-1 rounded bg-purple-500" />
+            Server path
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="inline-block w-8 h-1 rounded bg-red-500" />
+            Alternate path
+          </span>
+        </div>
 
-        {/* Draw Edges */}
-        {EDGES.map((edge, idx) => {
-          const fromNode = NODES.find(n => n.id === edge.from)!;
-          const toNode = NODES.find(n => n.id === edge.to)!;
-          const isActive = currentState === edge.from || currentState === edge.to;
-          const strokeColor = getPathColor(edge.pathType, isActive);
+        <div className="w-full rounded-xl bg-slate-900/50 border border-slate-800/80 p-3 md:p-4">
+          <svg
+            viewBox={vb}
+            className="w-full h-auto min-h-[280px] md:min-h-[340px] max-h-[min(52vh,520px)]"
+            preserveAspectRatio="xMidYMid meet"
+            style={{ aspectRatio: aspect }}
+            aria-label={title}
+          >
+            <defs>
+              <filter id={filterId}>
+                <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
 
-          const midX = (fromNode.x + toNode.x) / 2;
-          const midY = (fromNode.y + toNode.y) / 2;
-          
-          let pathD = `M ${fromNode.x} ${fromNode.y} L ${toNode.x} ${toNode.y}`;
-          if (edge.isCurve) {
-            pathD = `M ${fromNode.x} ${fromNode.y} Q ${midX} ${midY - 40} ${toNode.x} ${toNode.y}`;
-          }
+            {edges.map((edge, idx) => {
+              const fromNode = nodes.find((n) => n.id === edge.from)!;
+              const toNode = nodes.find((n) => n.id === edge.to)!;
+              if (!fromNode || !toNode) return null;
 
-          return (
-            <g key={`edge-${idx}`}>
-              <motion.path
-                d={pathD}
-                fill="none"
-                stroke={strokeColor}
-                strokeWidth={isActive ? 3 : 1}
-                initial={{ pathLength: 0, opacity: 0.2 }}
-                animate={{ pathLength: 1, opacity: isActive ? 1 : 0.3 }}
-                transition={{ duration: 1 }}
-                filter={isActive ? 'url(#glow-edge)' : ''}
-              />
-              <motion.text
-                x={midX}
-                y={edge.isCurve ? midY - 20 : midY - 5}
-                textAnchor="middle"
-                className={`text-[8px] font-mono ${getTextColor(edge.pathType)}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isActive ? 1 : 0.4 }}
-              >
-                {edge.label}
-              </motion.text>
-            </g>
-          );
-        })}
+              const isActive = active.has(edge.from) || active.has(edge.to);
+              const strokeColor = getPathColor(edge.pathType, isActive);
+              const midX = (fromNode.x + toNode.x) / 2;
+              const midY = (fromNode.y + toNode.y) / 2;
 
-        {/* Draw Nodes */}
-        {NODES.map((node) => {
-          const isActive = currentState === node.id;
-          
-          return (
-            <g key={node.id}>
-              <motion.circle
-                cx={node.x}
-                cy={node.y}
-                fill={isActive ? '#3b82f6' : '#0f172a'}
-                stroke={isActive ? '#60a5fa' : '#334155'}
-                strokeWidth={2}
-                initial={{ r: 8 }}
-                animate={{
-                  r: isActive ? 12 : 8,
-                  scale: isActive ? [1, 1.1, 1] : 1,
-                }}
-                transition={{
-                  scale: { repeat: Infinity, duration: 2 },
-                  duration: 0.3
-                }}
-                className="cursor-help"
-              />
-              <motion.text
-                x={node.x}
-                y={node.y + 25}
-                textAnchor="middle"
-                className={`text-[10px] font-mono font-bold tracking-tighter ${isActive ? 'fill-blue-400' : 'fill-slate-500'}`}
-                animate={{
-                  opacity: isActive ? 1 : 0.8,
-                  scale: isActive ? 1.1 : 1,
-                }}
-              >
-                {node.label}
-              </motion.text>
-            </g>
-          );
-        })}
-      </svg>
+              let pathD = `M ${fromNode.x} ${fromNode.y} L ${toNode.x} ${toNode.y}`;
+              if (edge.isCurve) {
+                pathD = `M ${fromNode.x} ${fromNode.y} Q ${midX} ${midY - 40} ${toNode.x} ${toNode.y}`;
+              }
+
+              return (
+                <g key={`edge-${view}-${idx}`}>
+                  <motion.path
+                    d={pathD}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={isActive ? 3.5 : 2}
+                    initial={{ pathLength: 0, opacity: 0.25 }}
+                    animate={{ pathLength: 1, opacity: isActive ? 1 : 0.4 }}
+                    transition={{ duration: 1 }}
+                    filter={isActive ? `url(#${filterId})` : ''}
+                  />
+                  <motion.text
+                    x={midX}
+                    y={edge.isCurve ? midY - 28 : midY - 10}
+                    textAnchor="middle"
+                    className={`text-[11px] md:text-[12px] font-mono font-medium ${getTextColor(edge.pathType)}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: isActive ? 1 : 0.55 }}
+                  >
+                    {edge.label}
+                  </motion.text>
+                </g>
+              );
+            })}
+
+            {nodes.map((node) => {
+              const isActive = active.has(node.id);
+              return (
+                <g key={`${view}-${node.id}`}>
+                  <motion.circle
+                    cx={node.x}
+                    cy={node.y}
+                    fill={isActive ? '#2563eb' : '#0f172a'}
+                    stroke={isActive ? '#93c5fd' : '#475569'}
+                    strokeWidth={isActive ? 2.5 : 2}
+                    initial={{ r: 10 }}
+                    animate={{
+                      r: isActive ? 15 : 10,
+                      scale: isActive ? [1, 1.06, 1] : 1,
+                    }}
+                    transition={{
+                      scale: { repeat: Infinity, duration: 2 },
+                      duration: 0.3,
+                    }}
+                  />
+                  <motion.text
+                    x={node.x}
+                    y={node.y + 26}
+                    textAnchor="middle"
+                    className={`text-[12px] md:text-[13px] font-mono font-bold ${isActive ? 'fill-sky-300' : 'fill-slate-500'}`}
+                    animate={{
+                      opacity: isActive ? 1 : 0.9,
+                    }}
+                  >
+                    {node.label}
+                  </motion.text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
     </div>
   );
 };

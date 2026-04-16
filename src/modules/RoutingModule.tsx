@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Network, Cpu, Zap, X, ArrowRight, Repeat, Send, Box, Play } from 'lucide-react';
 import { GlassCard } from '../components/GlassCard';
@@ -33,7 +33,82 @@ export const RoutingModule: React.FC = () => {
   const [routingUpdates, setRoutingUpdates] = useState<any[]>([]);
   
   const [modalNode, setModalNode] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string>("Ready. Select a Source and Destination to transmit data.");
+  const [infoLog, setInfoLog] = useState<{ id: number; time: string; text: string }[]>([
+    {
+      id: Date.now(),
+      time: new Date().toLocaleTimeString(),
+      text: 'Ready. Pick Traditional or SDN, optionally add routers, drag nodes to arrange the topology, then choose Source and Destination and press SEND.',
+    },
+  ]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    id: string;
+    origX: number;
+    origY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  const appendLog = useCallback((text: string) => {
+    setInfoLog((prev) =>
+      [...prev, { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(), text }].slice(-120)
+    );
+  }, []);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [infoLog]);
+
+  const handleNodePointerDown = (e: React.PointerEvent, nodeId: string) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    const n = nodes[nodeId];
+    if (!n) return;
+    dragRef.current = {
+      id: nodeId,
+      origX: n.x,
+      origY: n.y,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    const move = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = ev.clientX - d.startX;
+      const dy = ev.clientY - d.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 5) d.moved = true;
+      setNodes((prev) => {
+        const cur = prev[d.id];
+        if (!cur) return prev;
+        return { ...prev, [d.id]: { ...cur, x: d.origX + dx, y: d.origY + dy } };
+      });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (dragRef.current?.moved) suppressClickRef.current = true;
+      dragRef.current = null;
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const handleNodeClick = (nodeId: string) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (!selectedSrc) setSelectedSrc(nodeId);
+    else if (selectedSrc === nodeId) setSelectedSrc(null);
+    else if (!selectedDest) setSelectedDest(nodeId);
+    else if (selectedDest === nodeId) setSelectedDest(null);
+    else {
+      setSelectedSrc(nodeId);
+      setSelectedDest(null);
+    }
+  };
 
   const getShortestPath = (start: string, end: string) => {
     const queue = [[start]];
@@ -100,18 +175,18 @@ export const RoutingModule: React.FC = () => {
     const x = Math.random() * 600 + 100;
     const y = Math.random() * 400 + 100;
     const newNode = { id, x, y, name: `Router ${id}`, ipv6: `fe80::${id.toLowerCase()}${id.toLowerCase()}` };
-    
-    // Connect to at least one random existing node
+
     const keys = Object.keys(nodes);
-    let targetId = null;
-    if(keys.length > 0) {
-      targetId = keys[Math.floor(Math.random() * keys.length)];
+    let targetId: string | null = null;
+    if (keys.length > 0) {
+      targetId = keys[Math.floor(Math.random() * keys.length)]!;
     }
-    
-    setNodes(prev => ({ ...prev, [id]: newNode }));
-    if(targetId) {
-      setLinks(prev => [...prev, { id: `${id}-${targetId}`, source: id, target: targetId }]);
+
+    setNodes((prev) => ({ ...prev, [id]: newNode }));
+    if (targetId) {
+      setLinks((prev) => [...prev, { id: `${id}-${targetId}`, source: id, target: targetId }]);
     }
+    appendLog(`Added ${newNode.name} at (${Math.round(x)}, ${Math.round(y)})${targetId ? ` and linked it to ${targetId}. Drag the node to position it.` : '.'}`);
   };
 
   const removeNode = (nodeId: string, e: React.MouseEvent) => {
@@ -130,43 +205,71 @@ export const RoutingModule: React.FC = () => {
   const handleSend = async () => {
     if (!selectedSrc || !selectedDest || selectedSrc === selectedDest) return;
     const path = getShortestPath(selectedSrc, selectedDest);
-    
+
     if (!path) {
-        setInfoMessage("Transmission Failed: No path available due to broken links or missing routers.");
-        return;
+      appendLog(
+        'Transmission failed: there is no path between source and destination. Broken links (red dashed) remove edges from the graph, so the shortest-path search cannot reach the destination.'
+      );
+      return;
     }
+
+    const hopCount = path.length - 1;
+    appendLog(
+      `Computed path: ${path.join(' → ')} (${hopCount} hop${hopCount === 1 ? '' : 's'}). Shortest hop-count path among links that are not broken.`
+    );
 
     if (isSdnMode) {
-        // Phase 1: Packet-In
-        setInfoMessage("SDN Control Plane: Packet-In event. The ingress switch doesn't know this destination yet. It queries the centralized SDN Controller.");
-        const pktInId = `pkt-${Date.now()}-in`;
-        setAnimatingPackets(prev => [...prev, { id: pktInId, type: 'control', fromCoord: nodes[selectedSrc], toCoord: CONTROLLER, label: 'Packet-In' }]);
-        await new Promise(r => setTimeout(r, 2000));
-        setAnimatingPackets(prev => prev.filter(p => p.id !== pktInId));
+      appendLog(
+        'SDN — Packet-In: The first switch sees unknown destination MAC / flow and encapsulates a control message to the controller instead of flooding forever.'
+      );
+      const pktInId = `pkt-${Date.now()}-in`;
+      setAnimatingPackets((prev) => [
+        ...prev,
+        { id: pktInId, type: 'control', fromCoord: nodes[selectedSrc], toCoord: CONTROLLER, label: 'Packet-In' },
+      ]);
+      await new Promise((r) => setTimeout(r, 2000));
+      setAnimatingPackets((prev) => prev.filter((p) => p.id !== pktInId));
 
-        // Phase 2: Flow-Mod
-        setInfoMessage("SDN Control Plane: Flow-Mod sent. The controller calculates the shortest path globally and programs the forwarding rules into the switches.");
-        const fmods = path.map((node, i) => ({
-            id: `fmod-${Date.now()}-${i}`, type: 'control', fromCoord: CONTROLLER, toCoord: nodes[node], label: 'Flow-Mod'
-        }));
-        setAnimatingPackets(prev => [...prev, ...fmods]);
-        await new Promise(r => setTimeout(r, 2000));
-        setAnimatingPackets(prev => prev.filter(p => !fmods.includes(p)));
+      appendLog(
+        'SDN — Flow-Mod: The controller computes end-to-end forwarding (here: same shortest path) and pushes match/action rules to each switch along the path so later packets hit the data plane fast.'
+      );
+      const fmods = path.map((node, i) => ({
+        id: `fmod-${Date.now()}-${i}`,
+        type: 'control' as const,
+        fromCoord: CONTROLLER,
+        toCoord: nodes[node],
+        label: 'Flow-Mod',
+      }));
+      setAnimatingPackets((prev) => [...prev, ...fmods]);
+      await new Promise((r) => setTimeout(r, 2000));
+      setAnimatingPackets((prev) => prev.filter((p) => !fmods.some((f) => f.id === p.id)));
     } else {
-        setInfoMessage("Traditional Routing Step: Distance vectors establish tables. Nodes only know their immediate next hop, not the full path.");
-        await new Promise(r => setTimeout(r, 1000));
+      appendLog(
+        'Traditional routing: Each node maintains a forwarding table built from distributed updates (here visualized as orange “routing update” pulses on links). Only the next hop is stored locally—not the whole path.'
+      );
+      await new Promise((r) => setTimeout(r, 1000));
     }
 
-    // Phase 3: Data transmission
-    setInfoMessage("Data Plane: Payload forwarding. The switches/routers inspect the packet's destination IPv6 and pass it hop-by-hop down the calculated path.");
+    appendLog(
+      'Data plane: The payload follows the IPv6 destination hop by hop. Each intermediate node looks up the next hop toward the destination and forwards on that outgoing interface.'
+    );
     for (let i = 0; i < path.length - 1; i++) {
-        const hopId = `data-${Date.now()}-${i}`;
-        setAnimatingPackets(prev => [...prev, { id: hopId, type: 'data', fromCoord: nodes[path[i]], toCoord: nodes[path[i+1]], label: 'Data (IPv6)' }]);
-        await new Promise(r => setTimeout(r, 1000));
-        setAnimatingPackets(prev => prev.filter(p => p.id !== hopId));
+      const hopId = `data-${Date.now()}-${i}`;
+      setAnimatingPackets((prev) => [
+        ...prev,
+        {
+          id: hopId,
+          type: 'data',
+          fromCoord: nodes[path[i]],
+          toCoord: nodes[path[i + 1]],
+          label: 'Data (IPv6)',
+        },
+      ]);
+      await new Promise((r) => setTimeout(r, 1000));
+      setAnimatingPackets((prev) => prev.filter((p) => p.id !== hopId));
     }
-    
-    setInfoMessage("Transmission Complete! The data successfully reached the destination.");
+
+    appendLog('Complete: payload reached the destination node. Try breaking a link and sending again to see the path change.');
   };
 
   return (
@@ -293,24 +396,20 @@ export const RoutingModule: React.FC = () => {
                 return (
                     <div 
                         key={node.id}
-                        className={`absolute w-16 h-16 -ml-8 -mt-8 rounded-full border-4 flex flex-col items-center justify-center cursor-pointer transition-all z-10 ${
+                        className={`group absolute w-16 h-16 -ml-8 -mt-8 rounded-full border-4 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none transition-all z-10 ${
                             isSrc ? 'border-emerald-400 bg-emerald-900/40 shadow-[0_0_30px_#34d39966]' :
                             isDest ? 'border-purple-400 bg-purple-900/40 shadow-[0_0_30px_#c084fc66]' :
                             isSwitch ? 'border-slate-500 bg-slate-800' : 'border-blue-500 bg-blue-900/40'
                         }`}
                         style={{ left: node.x, top: node.y }}
-                        onClick={() => {
-                            if (!selectedSrc) setSelectedSrc(node.id);
-                            else if (selectedSrc === node.id) setSelectedSrc(null);
-                            else if (!selectedDest) setSelectedDest(node.id);
-                            else if (selectedDest === node.id) setSelectedDest(null);
-                            else { setSelectedSrc(node.id); setSelectedDest(null); }
-                        }}
+                        onPointerDown={(e) => handleNodePointerDown(e, node.id)}
+                        onClick={() => handleNodeClick(node.id)}
                         onDoubleClick={() => setModalNode(node.id)}
-                        title="Double Click to inspect"
+                        title="Drag to move. Click to set source/destination. Double-click: inside view."
                     >
                         {/* Remove router button */}
                         <button 
+                             type="button"
                              onClick={(e) => removeNode(node.id, e)} 
                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 hover:opacity-100 hover:scale-110 transition-all z-20 group-hover:opacity-100"
                         >
@@ -346,18 +445,19 @@ export const RoutingModule: React.FC = () => {
             <div className="absolute bottom-4 left-4 p-4 bg-slate-900/60 border border-slate-700/50 rounded-xl backdrop-blur-md text-xs text-slate-300 max-w-xs leading-relaxed">
                 <div className="text-blue-400 font-bold text-sm mb-2 flex items-center gap-2"><Zap size={14}/> Interactions</div>
                 <ul className="space-y-1 list-disc pl-4 text-slate-400">
-                    <li><b>Click links</b> to simulate failures (lightning bolt). Watch {isSdnMode ? 'the controller repopulate' : 'routing tables recalculate'}.</li>
-                    <li><b>Double-click routers</b> to peek inside the switching fabric.</li>
-                    <li><b>Select Source & Target</b> on the panel to animate data.</li>
+                    <li><b>Drag</b> a router/switch node to arrange the topology (links follow).</li>
+                    <li><b>Click links</b> to fail/restore them (red = down). Tables and paths update.</li>
+                    <li><b>Double-click</b> a node for the internal switching-fabric view.</li>
+                    <li><b>Click nodes</b> to pick source (green) and destination (purple), then SEND.</li>
                 </ul>
             </div>
         </div>
 
         {/* Right Sidebar Control Panel */}
-        <GlassCard className="w-80 flex flex-col p-6 h-full border-blue-500/20 shadow-[-10px_0_30px_rgba(59,130,246,0.05)] relative overflow-y-auto">
-            <h3 className="text-lg font-bold text-white mb-4 border-b border-slate-700 pb-2">Transmission Controller</h3>
+        <GlassCard className="w-80 flex flex-col p-6 min-h-0 max-h-[calc(100vh-10rem)] border-blue-500/20 shadow-[-10px_0_30px_rgba(59,130,246,0.05)] relative overflow-hidden">
+            <h3 className="text-lg font-bold text-white mb-4 border-b border-slate-700 pb-2 shrink-0">Transmission Controller</h3>
             
-            <div className="mb-6 space-y-4">
+            <div className="mb-6 space-y-4 shrink-0">
                 <div>
                     <label className="text-xs text-slate-500 uppercase font-bold mb-1 block">Source Node</label>
                     <div className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-emerald-400 font-bold flex justify-between items-center">
@@ -377,7 +477,7 @@ export const RoutingModule: React.FC = () => {
                 </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 shrink-0">
                 <button 
                     disabled={!selectedSrc || !selectedDest}
                     onClick={handleSend}
@@ -388,18 +488,23 @@ export const RoutingModule: React.FC = () => {
             </div>
             
             <button 
+                type="button"
                 onClick={addRouter}
-                className="mt-4 w-full py-2 border border-blue-500/30 text-blue-400 rounded-lg font-bold hover:bg-blue-900/30 transition shadow-sm"
+                className="mt-4 w-full py-2 border border-blue-500/30 text-blue-400 rounded-lg font-bold hover:bg-blue-900/30 transition shadow-sm shrink-0"
             >
                 + Add Dynamic Router
             </button>
 
-            {/* Explanation Log Panel */}
-            <div className="mt-8 relative flex-1 flex flex-col">
-                <div className="absolute inset-0 bg-slate-900 border border-slate-800 rounded-lg -z-10"></div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 border-b border-slate-800 pb-2">Status & Info</h4>
-                <div className="p-3 text-sm text-slate-300 leading-relaxed overflow-y-auto">
-                    {infoMessage}
+            <div className="mt-6 flex flex-col flex-1 min-h-0 border border-slate-800 rounded-lg bg-slate-950/80 overflow-hidden">
+                <h4 className="text-xs font-bold text-slate-500 uppercase px-3 py-2 border-b border-slate-800 shrink-0 bg-slate-900/90">Status &amp; info (scroll)</h4>
+                <div className="flex-1 min-h-[200px] max-h-[min(52vh,420px)] overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    {infoLog.map((entry) => (
+                      <div key={entry.id} className="text-sm text-slate-300 leading-relaxed border-b border-slate-800/80 pb-3 last:border-0 last:pb-0">
+                        <span className="text-[10px] font-mono text-slate-600 block mb-1">{entry.time}</span>
+                        {entry.text}
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
                 </div>
             </div>
         </GlassCard>

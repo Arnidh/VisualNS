@@ -18,7 +18,7 @@ export const Sidebar: React.FC = () => {
         <NavItem to="/routing" icon={<Network size={20} />} label="Routing & SDN" />
         <NavItem to="/vpn" icon={<ShieldAlert size={20} />} label="VPNs & QoS" />
         <NavItem to="/crypto" icon={<Lock size={20} />} label="Cryptography" />
-        <NavItem to="/attacks" icon={<Cpu size={20} />} label="Security & Attacks" />
+        <NavItem to="/attacks" icon={<Cpu size={20} />} label="Security & Defense" />
       </nav>
 
       <div className="p-4 border-t border-slate-700/50 text-xs text-slate-500 text-center">

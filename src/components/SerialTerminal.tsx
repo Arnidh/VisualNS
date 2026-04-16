@@ -110,9 +110,10 @@ export const SerialTerminal: React.FC = () => {
     if (!portRef.current || !portRef.current.readable) return;
 
     try {
-      readerRef.current = portRef.current.readable.getReader();
+      const reader = portRef.current.readable.getReader();
+      readerRef.current = reader;
       while (true) {
-        const { value, done } = await readerRef.current.read();
+        const { value, done } = await reader.read();
         if (done) break;
         if (value) {
           const text = new TextDecoder().decode(value);

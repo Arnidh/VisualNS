@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, SkipBack, SkipForward, RefreshCw, Key, ShieldCheck, ChevronRight, Info, BookOpen, Binary, ArrowRight } from 'lucide-react';
+import { Play, Pause, SkipForward, RefreshCw, Info, BookOpen, Binary, ArrowRight } from 'lucide-react';
 import { GlassCard } from './GlassCard';
+import { AesTheoryModal } from './AesTheoryModal';
 import { 
   subBytes, 
   shiftRows, 
@@ -186,7 +187,8 @@ export const AesSimulation: React.FC = () => {
         {/* Left: Matrix Display */}
         <div className="flex-1">
           <GlassCard className="h-full relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4">
+            <div className="absolute top-0 right-0 p-4 flex flex-col items-end gap-2">
+                <AesTheoryModal />
                 <div className={`px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest flex items-center gap-2
                   ${sim.isAutoPlaying ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
                     <div className={`w-1.5 h-1.5 rounded-full ${sim.isAutoPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
