@@ -52,16 +52,30 @@ export const SerialTerminal: React.FC = () => {
       fontFamily: '"Courier New", Courier, monospace',
       fontSize: 14,
       cursorBlink: true,
-      cols: 80,
-      rows: 24,
-      scrollback: 1000,
-      convertEol: true, // Handle line endings
+      scrollback: 5000,
+      convertEol: true,
+      allowProposedApi: true,
+      screenReaderMode: true,
+      cursorStyle: 'block',
     });
 
     fitAddon.current = new FitAddon();
     term.current.loadAddon(fitAddon.current);
     term.current.open(terminalRef.current);
-    fitAddon.current.fit();
+    
+    // Initial fit with a small delay to ensure container is rendered
+    const timeoutId = setTimeout(() => {
+      fitAddon.current?.fit();
+    }, 100);
+
+    // Handle resize
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.current?.fit();
+    });
+
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current.parentElement || terminalRef.current);
+    }
 
     // Welcome message
     term.current.writeln('\x1b[1;32mVisualNS Virtual PuTTY Terminal\x1b[0m');
@@ -74,12 +88,9 @@ export const SerialTerminal: React.FC = () => {
       }
     });
 
-    // Handle resize
-    const handleResize = () => fitAddon.current?.fit();
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeoutId);
+      resizeObserver.disconnect();
       disconnect();
       term.current?.dispose();
     };
@@ -221,32 +232,34 @@ export const SerialTerminal: React.FC = () => {
       </div>
 
       {/* Terminal Container */}
-      <div className="flex-1 relative min-h-[400px]">
+      <div className="flex-1 flex flex-col min-h-[400px] bg-[#000000] rounded-xl border border-slate-700/50 shadow-2xl overflow-hidden group">
         {/* Terminal Header Decoration */}
-        <div className="absolute top-0 left-0 right-0 h-8 bg-slate-800/80 rounded-t-xl border-t border-l border-r border-slate-700/50 flex items-center justify-between px-4 z-10">
+        <div className="flex-none h-9 bg-slate-800/40 border-b border-slate-700/30 flex items-center justify-between px-4 backdrop-blur-sm">
           <div className="flex items-center gap-2">
             <TerminalIcon size={14} className="text-slate-400" />
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">PuTTY Serial Terminal</span>
           </div>
           <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />
-            <div className="w-2.5 h-2.5 rounded-full bg-slate-700" />
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/50" />
+            <div className="w-2.5 h-2.5 rounded-full bg-slate-700/50" />
+            <div className="w-2.5 h-2.5 rounded-full bg-slate-700/50" />
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/40" />
           </div>
         </div>
         
-        {/* The XTerm Div */}
-        <div 
-          ref={terminalRef} 
-          className="w-full h-full pt-8 p-1 bg-black rounded-xl border border-slate-700/50 overflow-hidden shadow-2xl" 
-        />
-        
-        {error && (
-          <div className="absolute bottom-4 left-4 right-4 p-3 bg-red-900/40 border border-red-500/30 rounded-lg backdrop-blur-md text-xs text-red-200 flex justify-between items-start">
-             <span>Error: {error}</span>
-             <button onClick={() => setError(null)}><X size={14} /></button>
-          </div>
-        )}
+        {/* The XTerm Div Wrapper */}
+        <div className="flex-1 relative bg-black">
+          <div 
+            ref={terminalRef} 
+            className="absolute inset-0"
+          />
+          
+          {error && (
+            <div className="absolute bottom-4 left-4 right-4 p-3 bg-red-900/60 border border-red-500/30 rounded-lg backdrop-blur-md text-xs text-red-200 flex justify-between items-start z-20 animate-in fade-in slide-in-from-bottom-2">
+               <span>Error: {error}</span>
+               <button onClick={() => setError(null)} className="hover:text-white transition-colors"><X size={14} /></button>
+            </div>
+          )}
+        </div>
       </div>
 
       <p className="text-[10px] text-slate-500 font-mono text-center">
